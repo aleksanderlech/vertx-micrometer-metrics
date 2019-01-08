@@ -17,7 +17,6 @@
 package io.vertx.micrometer.impl.meters;
 
 import io.micrometer.core.instrument.Gauge;
-import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.vertx.micrometer.Label;
 import io.vertx.micrometer.impl.Labels;
@@ -37,7 +36,7 @@ public class Gauges<T> {
   private final Supplier<T> tSupplier;
   private final ToDoubleFunction<T> dGetter;
   private final MeterRegistry registry;
-  private final Map<Meter.Id, T> gauges = new ConcurrentHashMap<>();
+  private final Map<String, T> gauges = new ConcurrentHashMap<>();
 
   public Gauges(String name,
                 String description,
@@ -53,18 +52,17 @@ public class Gauges<T> {
     this.keys = keys;
   }
 
-  public synchronized T get(String... values) {
-    // This method is synchronized to make sure the "T" built via supplier will match the one passed to Gauge
-    //  since it is stored as WeakReference in Micrometer DefaultGauge, it must not be lost.
+  public T get(String... values) {
     T t = tSupplier.get();
-    // Register this gauge if necessary
-    // Note: we need here to go through the process of Gauge creation, even if it already exists,
-    //  in order to get the Gauge ID. This ID generation is not trivial since it may involves attached MetricFilters.
-    //  Micrometer will not register the gauge twice if it was already created.
-    Gauge g = Gauge.builder(name, t, dGetter)
-      .description(description)
-      .tags(Labels.toTags(keys, values))
-      .register(registry);
-    return gauges.computeIfAbsent(g.getId(), v -> t);
+    // Get the cached gauge instance and register it if necessary
+    // Micrometer will not register the gauge twice if it was already created.
+    return gauges.computeIfAbsent(String.join("_", values), v -> {
+      Gauge.builder(name, t, dGetter)
+        .description(description)
+        .tags(Labels.toTags(keys, values))
+        .register(registry);
+
+      return t;
+    });
   }
 }
